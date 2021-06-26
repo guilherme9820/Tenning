@@ -84,16 +84,17 @@ def int64_feature(value):
 class IteratorBuilder:
     """'IteratorBuilder' uses the tensorflow Dataset API to build a dataset iterator.
 
-        It accepts a pandas dataframe or a numpy array as dataset and takes care of the
-        dataset caching to memory or disk if a directory is specified. It only has two
-        methods that must be implemented by the user: 'yielder' and 'post_process'.
-        The former can handle dataset manipulation, but is advisable to leave the hard
-        work for the 'post_process' method, since the data returned by the 'yielder'
-        method will be cached. 
+        It accepts a pandas dataframe or a numpy array as dataset. It can cache the
+        dataset to memory or to disk, the latter if a directory is specified. There are
+        two methods that must be implemented by the user: 'yielder' and 'post_process'.
+        The former can handle dataset manipulation, but the user must have in mind that
+        this function will store its return value in memory or disk. Thus, one needs to
+        avoid loading bigger files such as images if one wants to save memory. Is advisable
+        to leave the hard work for the 'post_process' method to save memory.
 
-        For example, when dealing with image dataset is advisableto return the image file
+        For example, when dealing with an image dataset is advisable to return the image file
         paths in the 'yielder' method and only load the image on the 'post_process' method.
-        For this case it will be an increase in the dataset pipeline but there won't be a
+        For this case, it will be an increase in the dataset pipeline but there won't be a
         memory overflow.
 
         Args:
@@ -107,11 +108,7 @@ class IteratorBuilder:
             for key, value in kwargs.items():
                 setattr(self, key, value)
 
-        # self._is_dataset_set = False
         self._is_params_set = False
-        self._train_data_size = 0
-        self._val_data_size = 0
-        self._test_data_size = 0
 
     def set_dataset(self,
                     dataset: Union[pd.DataFrame, np.array],
@@ -128,11 +125,9 @@ class IteratorBuilder:
 
         train_dataset, val_dataset, test_dataset = split_dataset(dataset, val_ratio=val_ratio, test_ratio=test_ratio)
 
-        self.train_dataset = train_dataset
-        self.val_dataset = val_dataset
-        self.test_dataset = test_dataset
-
-        # self._is_dataset_set = True
+        self._train_dataset = train_dataset
+        self._val_dataset = val_dataset
+        self._test_dataset = test_dataset
 
     def set_params(self, **params: dict) -> None:
         """ Specifies some parameters that will be useful to the iterator.
@@ -161,32 +156,27 @@ class IteratorBuilder:
         if not self._is_params_set:
             self.set_params()
 
-    # def _check_dataset(self):
-
-    #     if not self._is_dataset_set:
-    #         raise Exception("You must provide a dataset to 'set_dataset()' first")
-
     def yielder(self, data) -> Union[list, tuple]:
         """ This method must be implemented by the user and can perform any
             transformation to the dataset. The return of this method will be
             cached to memory or disk.
 
-            * Its advisable to leave the hard work to the 'post_process' method.
+            * It's advisable to leave the hard work to the 'post_process' method.
 
             Args:
-                params: A dictionary containing the parameters to be set.
+                params: A Tensor containing a batch from the dataset.
 
             Returns:
                 The return value must be a iterable containing the data. For example:
                 if the dataset is the Iris flowers dataset and we want to split this
                 data into four sets: 'sepal length', 'sepal width', 'petal length'
-                and 'petal width', we must perform this split in this method and
+                and 'petal width', then we must perform this split in this method and
                 return a iterable as follows:
 
-                    sepal_length = dataset['sepal length']
-                    sepal_width = dataset['sepal width']
-                    petal_length = dataset['petal length']
-                    petal_width = dataset['petal width']
+                    sepal_length = dataset[:, 0]
+                    sepal_width = dataset[:, 1]
+                    petal_length = dataset[:, 2]
+                    petal_width = dataset[:, 3]
 
                     return (sepal_length, sepal_width, petal_length, petal_width)
         """
@@ -197,70 +187,52 @@ class IteratorBuilder:
 
     def gen_iterator(self, dataset, dataset_size, buffer_size=None, cache_file="", seed=42):
 
-        # self._check_dataset()
         self._check_params()
 
-        if dataset_size < self._batch_size:
-            print("Could not generate an iterator because the dataset size is smaller than the batch size")
+        if (dataset_size < self._batch_size) or (dataset is None):
             return None
 
-        if dataset is not None:
+        buffer_size = buffer_size or dataset_size * 3
 
-            buffer_size = buffer_size or dataset_size * 3
+        dataset = tf.data.Dataset.from_tensor_slices(dataset)
 
-            dataset = tf.data.Dataset.from_tensor_slices(dataset)
+        if self._shuffle:
+            dataset = dataset.shuffle(buffer_size=buffer_size, seed=seed)
 
-            if self._shuffle:
-                dataset = dataset.shuffle(buffer_size=buffer_size, seed=seed)
+        dataset = dataset.batch(self._batch_size, drop_remainder=self._drop_remainder)
 
-            dataset = dataset.batch(self._batch_size, drop_remainder=self._drop_remainder)
+        # Preprocessing of the dataset before cache. Must be a cheaper funcionality and that
+        # doesn't generate bigger files to avoid memory hunger computation
+        dataset = dataset.map(self.yielder, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
-            # Preprocessing of the dataset before cache. Must be a cheaper funcionality and that
-            # doesn't generate bigger files to avoid memory hunger computation
-            dataset = dataset.map(self.yielder, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+        # Store cache in HDD or RAM, the former is only performed if a 'cache_file' is given
+        dataset = dataset.cache(cache_file)
 
-            # Store cache in HDD or RAM, the former is only performed if a 'cache_file' is given
-            dataset = dataset.cache(cache_file)
+        # Apply image preprocessing to the whole batch
+        dataset = dataset.map(self.post_process, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
-            # Apply image preprocessing to the whole batch
-            dataset = dataset.map(self.post_process, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+        # Overlaps the preprocessing and model execution of a training step
+        dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
 
-            # Overlaps the preprocessing and model execution of a training step
-            dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
-
-            return dataset
-
-        return None
+        return dataset
 
     def train_iterator(self, buffer_size=None, cache_file="", seed=42):
-        return self.gen_iterator(self._train_dataset, self._train_data_size, buffer_size=buffer_size, cache_file=cache_file, seed=seed)
+        return self.gen_iterator(self._train_dataset, len(self._train_dataset), buffer_size=buffer_size, cache_file=cache_file, seed=seed)
 
     def test_iterator(self, buffer_size=None, cache_file="", seed=42):
-        return self.gen_iterator(self._test_dataset, self._test_data_size, buffer_size=buffer_size, cache_file=cache_file, seed=seed)
+        return self.gen_iterator(self._test_dataset, len(self._test_dataset), buffer_size=buffer_size, cache_file=cache_file, seed=seed)
 
     def val_iterator(self, buffer_size=None, cache_file="", seed=42):
-        return self.gen_iterator(self._val_dataset, self._val_data_size, buffer_size=buffer_size, cache_file=cache_file, seed=seed)
+        return self.gen_iterator(self._val_dataset, len(self._val_dataset), buffer_size=buffer_size, cache_file=cache_file, seed=seed)
 
     def num_batches(self, data_size):
         """Returns number of batches"""
 
         if self._drop_remainder:
-            # Ignores the last batch if it is smaller than batch size
+            # Ignores the last batch if it is smaller than the batch size
             return np.floor(data_size / self._batch_size).astype(np.int32)
 
         return np.ceil(data_size / self._batch_size).astype(np.int32)
-
-    @property
-    def num_columns(self):
-        """Returns number of columns from the dataframe"""
-
-        # self._check_dataset()
-
-        return len(self._df_cols)
-
-    @property
-    def column_names(self):
-        return self._df_cols
 
     @property
     def train_dataset(self):
@@ -270,13 +242,10 @@ class IteratorBuilder:
     def train_dataset(self, train_dataset):
 
         if isinstance(train_dataset, pd.DataFrame):
-            self._df_cols = train_dataset.columns
             self._train_dataset = dataframe_to_tensor(train_dataset, train_dataset.columns)
 
         elif isinstance(train_dataset, np.ndarray):
             self._train_dataset = train_dataset
-
-        self._train_data_size = len(train_dataset)
 
     @property
     def test_dataset(self):
@@ -286,13 +255,10 @@ class IteratorBuilder:
     def test_dataset(self, test_dataset):
 
         if isinstance(test_dataset, pd.DataFrame):
-            self._df_cols = test_dataset.columns
             self._test_dataset = dataframe_to_tensor(test_dataset, test_dataset.columns)
 
         elif isinstance(test_dataset, np.ndarray):
             self._test_dataset = test_dataset
-
-        self._test_data_size = len(test_dataset)
 
     @property
     def val_dataset(self):
@@ -302,27 +268,23 @@ class IteratorBuilder:
     def val_dataset(self, val_dataset):
 
         if isinstance(val_dataset, pd.DataFrame):
-            self._df_cols = val_dataset.columns
             self._val_dataset = dataframe_to_tensor(val_dataset, val_dataset.columns)
 
         elif isinstance(val_dataset, np.ndarray):
             self._val_dataset = val_dataset
 
-        self._val_data_size = len(val_dataset)
-
     def __len__(self):
         """Returns the total dataset size"""
 
-        return self._train_data_size + self._val_data_size + self._test_data_size
+        return len(self._train_dataset) + len(self._val_dataset) + len(self._test_dataset)
 
     def get_config(self):
 
-        # self._check_dataset()
         self._check_params()
 
-        train_info = {"size": self._train_data_size, "num_batches": self.num_batches(self._train_data_size)}
-        test_info = {"size": self._test_data_size, "num_batches": self.num_batches(self._test_data_size)}
-        val_info = {"size": self._val_data_size, "num_batches": self.num_batches(self._val_data_size)}
+        train_info = {"size": len(self._train_dataset), "num_batches": self.num_batches(len(self._train_dataset))}
+        test_info = {"size": len(self._test_dataset), "num_batches": self.num_batches(len(self._test_dataset))}
+        val_info = {"size": len(self._val_dataset), "num_batches": self.num_batches(len(self._val_dataset))}
 
         config = {'train_info': train_info,
                   'val_info': val_info,
@@ -497,7 +459,7 @@ def benchmark_data_pipeline(dataset_iterator, epochs=1):
 
         start_time2 = time.perf_counter()
 
-        for data_dict in dataset_iterator:
+        for _ in dataset_iterator:
 
             num_batches = next(counter)
 
