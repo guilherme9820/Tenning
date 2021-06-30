@@ -98,63 +98,43 @@ class IteratorBuilder:
         memory overflow.
 
         Args:
-            kwargs: Any pair of key and values.
+            kwargs: Any pair of key and values. Some useful keywords can be added, such as
+            'batch_size', 'shuffle', 'drop_remainder', 'val_ratio' and 'test_ratio'. The
+            'batch_size' parameter specifies the number of samples which will be taken from
+            the dataset after each iteration (defaults to 32). If the last batch can't have
+            the same size of the other batches it can be dropped by setting 'drop_remainder'
+            to True (defaults to True). The dataset gets shuffled each time the iterator is
+            restarted if 'shuffle' is set to true (defaults to False). The 'val_ratio' and
+            the 'test_ratio' parameters specify the dataset split ratio.
     """
 
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+
+        self._batch_size = kwargs.pop('batch_size', 32)
+        self._shuffle = kwargs.pop('shuffle', False)
+        self._drop_remainder = kwargs.pop('drop_remainder', True)
+        self._val_ratio = kwargs.pop('val_ratio', 0.2)
+        self._test_ratio = kwargs.pop('test_ratio', 0.3)
 
         if kwargs:
             for key, value in kwargs.items():
                 setattr(self, key, value)
 
-        self._is_params_set = False
-
-    def set_dataset(self,
-                    dataset: Union[pd.DataFrame, np.array],
-                    val_ratio: float = 0.04,
-                    test_ratio: float = 0.4) -> None:
+    def set_dataset(self, dataset: Union[pd.DataFrame, np.array]) -> None:
         """ Splits the dataset into train, test and validation datasets and leave them
             prepared so a iterator can be created.
 
             Args:
                 dataset: Input dataset.
-                val_ratio: Fraction of the dataset that will be split into validation dataset.
-                test_ratio: Fraction of the dataset that will be split into test dataset.
         """
 
-        train_dataset, val_dataset, test_dataset = split_dataset(dataset, val_ratio=val_ratio, test_ratio=test_ratio)
+        train_dataset, val_dataset, test_dataset = split_dataset(dataset,
+                                                                 val_ratio=self._val_ratio,
+                                                                 test_ratio=self._test_ratio)
 
-        self._train_dataset = train_dataset
-        self._val_dataset = val_dataset
-        self._test_dataset = test_dataset
-
-    def set_params(self, **params: dict) -> None:
-        """ Specifies some parameters that will be useful to the iterator.
-
-            Currently only accepts three parameters: 'batch_size', 'shuffle'
-            and 'drop_remainder'. The 'batch_size' parameter specifies the
-            batch size that will be taken from the dataset each time (defaults
-            to 32). If the last batch can't have the same size of the other
-            batches it can be dropped by setting 'drop_remainder' to True
-            (defaults to True). If 'shuffle' is set to True, then each time
-            the iterator ends and gets restarted, the dataset gets shuffled
-            (defaults to False).
-
-            Args:
-                params: A dictionary containing the parameters to be set.
-        """
-
-        self._batch_size = params.get('batch_size', 32)
-        self._shuffle = params.get('shuffle', False)
-        self._drop_remainder = params.get('drop_remainder', True)
-
-        self._is_params_set = True
-
-    def _check_params(self):
-
-        if not self._is_params_set:
-            self.set_params()
+        self.train_dataset = train_dataset
+        self.val_dataset = val_dataset
+        self.test_dataset = test_dataset
 
     def yielder(self, data) -> Union[list, tuple]:
         """ This method must be implemented by the user and can perform any
@@ -187,8 +167,6 @@ class IteratorBuilder:
 
     def gen_iterator(self, dataset, dataset_size, buffer_size=None, cache_file="", seed=42):
 
-        self._check_params()
-
         if (dataset_size < self._batch_size) or (dataset is None):
             return None
 
@@ -217,13 +195,13 @@ class IteratorBuilder:
         return dataset
 
     def train_iterator(self, buffer_size=None, cache_file="", seed=42):
-        return self.gen_iterator(self._train_dataset, len(self._train_dataset), buffer_size=buffer_size, cache_file=cache_file, seed=seed)
+        return self.gen_iterator(self._train_dataset, len(self.train_dataset), buffer_size=buffer_size, cache_file=cache_file, seed=seed)
 
     def test_iterator(self, buffer_size=None, cache_file="", seed=42):
-        return self.gen_iterator(self._test_dataset, len(self._test_dataset), buffer_size=buffer_size, cache_file=cache_file, seed=seed)
+        return self.gen_iterator(self._test_dataset, len(self.test_dataset), buffer_size=buffer_size, cache_file=cache_file, seed=seed)
 
     def val_iterator(self, buffer_size=None, cache_file="", seed=42):
-        return self.gen_iterator(self._val_dataset, len(self._val_dataset), buffer_size=buffer_size, cache_file=cache_file, seed=seed)
+        return self.gen_iterator(self._val_dataset, len(self.val_dataset), buffer_size=buffer_size, cache_file=cache_file, seed=seed)
 
     def num_batches(self, data_size):
         """Returns number of batches"""
@@ -276,15 +254,13 @@ class IteratorBuilder:
     def __len__(self):
         """Returns the total dataset size"""
 
-        return len(self._train_dataset) + len(self._val_dataset) + len(self._test_dataset)
+        return len(self.train_dataset) + len(self.val_dataset) + len(self.test_dataset)
 
     def get_config(self):
 
-        self._check_params()
-
-        train_info = {"size": len(self._train_dataset), "num_batches": self.num_batches(len(self._train_dataset))}
-        test_info = {"size": len(self._test_dataset), "num_batches": self.num_batches(len(self._test_dataset))}
-        val_info = {"size": len(self._val_dataset), "num_batches": self.num_batches(len(self._val_dataset))}
+        train_info = {"size": len(self.train_dataset), "num_batches": self.num_batches(len(self.train_dataset))}
+        test_info = {"size": len(self.test_dataset), "num_batches": self.num_batches(len(self.test_dataset))}
+        val_info = {"size": len(self.val_dataset), "num_batches": self.num_batches(len(self.val_dataset))}
 
         config = {'train_info': train_info,
                   'val_info': val_info,
