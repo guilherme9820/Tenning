@@ -152,5 +152,5 @@ class WahbaError(MeanMetricWrapper):
 
 class QuaternionDistance(MeanMetricWrapper):
 
-    def __init__(self, name='quaternion_distance', dtype=None):
+    def __init__(self, name='quaternion_error', dtype=None):
         super().__init__(quaternion_distance, name, dtype=dtype)

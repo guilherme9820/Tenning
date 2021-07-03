@@ -38,5 +38,5 @@ setup(
     license="MIT",
     packages=find_packages(exclude=['tests', 'models']),
     install_requires=requirements(),
-    python_requires='==3.6',
+    python_requires='>=3.6',
 )
