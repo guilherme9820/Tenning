@@ -2,15 +2,23 @@ import tensorflow as tf
 import numpy as np
 
 
-def angle_from_dcm(dcm):
+def angle_from_dcm(dcm, unit='rad'):
     """ Extract the rotation angles from a given set of Direction Cosine Matrices (DCMs).
 
     Args:
         dcms: An array of shape (S, 3, 3), where S is the number of DCMs.
+        unit: Defines the unit of the returning angles. Can be either 'deg' or 'rad'.
 
     Returns:
         A set of rotation angles of shape (S).
     """
+
+    cond = (unit == 'deg') or (unit == 'rad')
+    assert cond, f"The 'unit' argument must be either 'deg' or 'rad', but got {unit}"
+
+    def rad2deg(rad):
+        pi_on_180 = 0.017453292519943295
+        return rad / pi_on_180
 
     eps = 1e-7
 
@@ -18,7 +26,12 @@ def angle_from_dcm(dcm):
 
     cos = tf.minimum(tf.maximum(cos, -1 + eps), 1 - eps)
 
-    return tf.acos(cos)
+    angles = tf.acos(cos)
+
+    if unit == 'deg':
+        return rad2deg(angles)
+
+    return angles
 
 
 def axisangle_from_dcm(dcms):
@@ -87,6 +100,9 @@ def gen_random_dcm(num_samples, min_angle=-np.pi, max_angle=np.pi, unit='rad'):
         A set of Direction Cosine Matrices of shape (S, 3, 3).
     """
 
+    cond = (unit == 'deg') or (unit == 'rad')
+    assert cond, f"The 'unit' argument must be either 'deg' or 'rad', but got {unit}"
+
     if unit == 'deg':
         min_angle, max_angle = np.radians(min_angle), np.radians(max_angle)
 
@@ -112,6 +128,9 @@ def gen_rot_quaternion(num_samples, min_angle=-np.pi, max_angle=np.pi, unit='rad
     Returns:
         A set of rotation quaternions of shape (S, 4).
     """
+
+    cond = (unit == 'deg') or (unit == 'rad')
+    assert cond, f"The 'unit' argument must be either 'deg' or 'rad', but got {unit}"
 
     if unit == 'deg':
         min_angle, max_angle = np.radians(min_angle), np.radians(max_angle)
