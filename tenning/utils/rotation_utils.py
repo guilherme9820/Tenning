@@ -2,6 +2,11 @@ import tensorflow as tf
 import numpy as np
 
 
+def rad2deg(rad):
+    pi_on_180 = 0.017453292519943295
+    return rad / pi_on_180
+
+
 def angle_from_dcm(dcm, unit='rad'):
     """ Extract the rotation angles from a given set of Direction Cosine Matrices (DCMs).
 
@@ -16,10 +21,6 @@ def angle_from_dcm(dcm, unit='rad'):
     cond = (unit == 'deg') or (unit == 'rad')
     assert cond, f"The 'unit' argument must be either 'deg' or 'rad', but got {unit}"
 
-    def rad2deg(rad):
-        pi_on_180 = 0.017453292519943295
-        return rad / pi_on_180
-
     eps = 1e-7
 
     cos = (tf.linalg.trace(dcm) - 1.) * 0.5
@@ -27,6 +28,34 @@ def angle_from_dcm(dcm, unit='rad'):
     cos = tf.minimum(tf.maximum(cos, -1 + eps), 1 - eps)
 
     angles = tf.acos(cos)
+
+    if unit == 'deg':
+        return rad2deg(angles)
+
+    return angles
+
+
+def angle_from_quaternion(quaternions, unit='rad'):
+    """ Extract the rotation angles from a given set of rotation quaternions.
+
+    Args:
+        quaternions: An array of shape (S, 4), where S is the number of quaternions.
+                     It considers the quaternions are in the (x,y,z,w) order.
+        unit: Defines the unit of the returning angles. Can be either 'deg' or 'rad'.
+
+    Returns:
+        A set of rotation angles of shape (S).
+    """
+
+    cond = (unit == 'deg') or (unit == 'rad')
+    assert cond, f"The 'unit' argument must be either 'deg' or 'rad', but got {unit}"
+
+    im = quaternions[:, :-1]
+
+    sin = tf.linalg.norm(im, axis=-1)
+    cos = quaternions[:, -1]
+
+    angles = 2 * tf.atan2(sin, cos)
 
     if unit == 'deg':
         return rad2deg(angles)
@@ -135,7 +164,7 @@ def gen_rot_quaternion(num_samples, min_angle=-np.pi, max_angle=np.pi, unit='rad
     if unit == 'deg':
         min_angle, max_angle = np.radians(min_angle), np.radians(max_angle)
 
-    theta = tf.random.uniform([num_samples, 1], min_angle, max_angle)
+    theta = tf.random.uniform([num_samples, 1], min_angle, max_angle)/2
     sin = tf.math.sin(theta)
     axis = tf.random.uniform([num_samples, 3])
     axis = tf.linalg.normalize(axis, axis=1)[0]  # batch*3
@@ -178,7 +207,7 @@ def rotation_matrix_from_ortho6d(ortho6d):
     return matrix
 
 
-def rotation_matrix_from_quaternion(quaternion):
+def dcm_from_quaternion(quaternion):
     quat = tf.linalg.normalize(quaternion, axis=1)[0]
 
     qw = quat[:, 3][:, tf.newaxis]
