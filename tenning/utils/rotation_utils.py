@@ -413,27 +413,23 @@ def rotate_vector(rotations, vectors, representation='dcm'):
     rotations = tf.convert_to_tensor(rotations, dtype='float32')
     vectors = tf.convert_to_tensor(vectors, dtype='float32')
 
-    if len(rotations.shape) < 2:
-        rotations = rotations[tf.newaxis, :]
+    if len(tf.shape(rotations)) < 2:
+        rotations = rotations[tf.newaxis, ...]
 
-    if len(vectors.shape) < 2:
-        vectors = vectors[tf.newaxis, :]
+    if len(tf.shape(vectors)) < 2:
+        vectors = vectors[tf.newaxis, ...]
 
     if representation == 'quaternion':
 
-        original_shape = vectors.shape
-        rotation_shape = rotations.shape
+        original_shape = tf.shape(vectors)
+        rotation_shape = tf.shape(rotations)
 
         vectors = tf.reshape(vectors, [-1, 3])
         # We need to transform the point clound from R^3 to R^4 by adding zeros
-        zeros = tf.zeros([vectors.shape[0], 1])
+        zeros = tf.zeros([tf.shape(vectors)[0], 1])
         pcs = tf.concat([vectors, zeros], axis=-1)  # (..., 4)
 
-        samples = rotation_shape[0]
-        idx = tf.range(samples)[:, tf.newaxis]  # idx = [[0], [1], ..., [batch_size-1]]
-        # idx = [[0, 3], [1, 3], ..., [batch_size-1, 3]]
-        idx = tf.concat([idx, 3*tf.ones([samples, 1], dtype='int32')], axis=-1)
-        quat_inv = tf.tensor_scatter_nd_update(-rotations, idx, rotations[:, 3])
+        quat_inv = quaternion_inverse(rotations)
 
         diff = tf.reduce_prod(original_shape[:-1]) / tf.reduce_prod(rotation_shape[:-1])
         quat = rotations[:, tf.newaxis, :]
