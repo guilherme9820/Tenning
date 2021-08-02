@@ -285,13 +285,7 @@ def geodesic_distance(y_true, y_pred):
 
 def euclidean_distance(y_true, y_pred):
 
-    batch_size = tf.shape(y_true)[0]
-
-    y_true = tf.reshape(y_true, [batch_size, -1])
-
-    y_pred = tf.reshape(y_pred, [batch_size, -1])
-
-    return tf.norm(y_true - y_pred, axis=-1)
+    return tf.reduce_mean(tf.norm(y_true - y_pred, axis=-1), axis=-1)
 
 
 def wahba_loss(y_true: Union[np.ndarray, tf.Tensor],
