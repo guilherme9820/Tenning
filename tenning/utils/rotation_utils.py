@@ -243,7 +243,62 @@ def dcm_from_quaternion(quaternion):
     return matrix
 
 
-def gen_boresight_vector(num_samples, observations, weight=15):
+def quaternion_from_dcm(dcm):
+
+    if len(tf.shape(dcm)) < 3:
+        dcm = dcm[tf.newaxis, ...]
+
+    A11 = dcm[:, 0, 0]
+    A12 = dcm[:, 0, 1]
+    A13 = dcm[:, 0, 2]
+    A21 = dcm[:, 1, 0]
+    A22 = dcm[:, 1, 1]
+    A23 = dcm[:, 1, 2]
+    A31 = dcm[:, 2, 0]
+    A32 = dcm[:, 2, 1]
+    A33 = dcm[:, 2, 2]
+
+    x1 = tf.transpose([1 + 2*A11 - tf.linalg.trace(dcm),
+                       A12 + A21,
+                       A13 + A31,
+                       A23 - A32])
+    x1 /= tf.linalg.norm(x1, axis=1, keepdims=True)
+
+    x2 = tf.transpose([A21 + A12,
+                       1 + 2*A22 - tf.linalg.trace(dcm),
+                       A23 + A32,
+                       A31 - A13])
+    x2 /= tf.linalg.norm(x2, axis=1, keepdims=True)
+
+    x3 = tf.transpose([A31 + A13,
+                       A32 + A23,
+                       1 + 2*A33 - tf.linalg.trace(dcm),
+                       A12 - A21])
+    x3 /= tf.linalg.norm(x3, axis=1, keepdims=True)
+
+    x4 = tf.transpose([A23 - A32,
+                       A31 - A13,
+                       A12 - A21,
+                       1 + tf.linalg.trace(dcm)])
+    x4 /= tf.linalg.norm(x4, axis=1, keepdims=True)
+
+    # Each row vector is a rotation quaternion
+    quaternions = tf.stack([x1, x2, x3, x4], axis=1)
+
+    squared_qi = tf.linalg.diag_part(quaternions)**2
+    indices = tf.argmax(squared_qi, axis=1)
+
+    def get_quat(elements):
+        quat = elements[0]
+        idx = elements[1]
+        return tf.slice(quat, [idx, 0], [1, 4])[0]
+
+    quaternions = tf.map_fn(get_quat, [quaternions, indices], dtype=tf.float32)
+
+    return quaternion_inverse(quaternions)
+
+
+def gen_boresight_vector(num_samples, observations, weight=2):
 
     vec = np.random.uniform(size=(num_samples, observations, 3))
 
