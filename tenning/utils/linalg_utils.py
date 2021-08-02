@@ -179,10 +179,13 @@ def cross(a, b):
 
 def sym_matrix_from_array(array):
 
-    batch_size = tf.shape(array)[0]
-
     # Gets the number of elements in the inner most dimension
-    num_values = tf.shape(array)[-1]
+    original_shape = tf.shape(array)
+    num_values = original_shape[-1]
+
+    array = tf.reshape(array, [-1, num_values])
+
+    batch_size = tf.shape(array)[0]
 
     batch_indices = tf.range(batch_size)[:, tf.newaxis, tf.newaxis]
     batch_indices = tf.tile(batch_indices, [1, num_values, 1])
@@ -208,7 +211,9 @@ def sym_matrix_from_array(array):
     symm_matrix = tf.tensor_scatter_nd_update(symm_matrix, upper_idx, array)
     symm_matrix = tf.tensor_scatter_nd_update(symm_matrix, lower_idx, array)
 
-    return symm_matrix
+    new_shape = tf.concat([original_shape[:-1], [matrix_dim, matrix_dim]], axis=0)
+
+    return tf.reshape(symm_matrix, new_shape)
 
 
 if __name__ == "__main__":

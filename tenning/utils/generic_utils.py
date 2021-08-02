@@ -418,15 +418,13 @@ def eye_like(matrix):
         A tensor with the shape as input matrix.
     """
 
-    assert tf.rank(matrix) == 2 or tf.rank(matrix) == 3, "The input matrix must be a 2D-tensor or 3D-tensor"
+    if tf.rank(matrix) < 3:
+        matrix = matrix[tf.newaxis, ...]
 
-    batch_size = None
-    if tf.rank(matrix) == 3:
-        batch_size, height, width = tf.shape(matrix)
-        batch_size = [batch_size]
-    else:
-        height, width = tf.shape(matrix)
+    batch_size = tf.shape(matrix)[0]
+    height = tf.shape(matrix)[1]
+    width = tf.shape(matrix)[2]
 
-    identity = tf.eye(height, num_columns=width, batch_shape=batch_size)
+    identity = tf.eye(height, num_columns=width, batch_shape=[batch_size])
 
     return identity
