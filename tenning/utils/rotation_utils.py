@@ -100,7 +100,10 @@ def dcm_from_axisangle(axes, angles):
         A Direction Cosine Matrix of shape (S, 3, 3).
     """
 
-    if len(axes.shape) < 2:
+    axes = tf.cast(axes, 'float32')
+    angles = tf.cast(angles, 'float32')
+
+    if len(tf.shape(axes)) < 2:
         axes = axes[tf.newaxis, :]
 
     cos = tf.math.cos(angles)
@@ -192,23 +195,26 @@ def rotation_matrix_from_ortho6d(ortho6d):
                      Computer Vision and Pattern Recognition. 2019.
     """
 
-    x_raw = ortho6d[:, :3]
-    y_raw = ortho6d[:, 3:]
+    x_raw = ortho6d[..., :3]
+    y_raw = ortho6d[..., 3:]
 
-    x = tf.linalg.normalize(x_raw, axis=1)[0]
+    x = tf.linalg.normalize(x_raw, axis=-1)[0]
 
     z = tf.linalg.cross(x, y_raw)  # (batch, 3)
 
-    z = tf.linalg.normalize(z, axis=1)[0]  # (batch, 3)
+    z = tf.linalg.normalize(z, axis=-1)[0]  # (batch, 3)
     y = tf.linalg.cross(z, x)  # (batch, 3)
 
-    matrix = tf.stack([x, y, z], axis=1)
+    matrix = tf.stack([x, y, z], axis=-1)
 
     return matrix
 
 
 def dcm_from_quaternion(quaternion):
-    quat = tf.linalg.normalize(quaternion, axis=1)[0]
+
+    quat = tf.cast(quaternion, 'float32')
+
+    quat /= tf.linalg.norm(quat, axis=1, keepdims=True)
 
     qw = quat[:, 3][:, tf.newaxis]
     qx = quat[:, 0][:, tf.newaxis]
@@ -307,7 +313,7 @@ def quaternion_multiplication(quat1, quat2):
     quat1 = tf.convert_to_tensor(quat1, dtype='float32')
     quat2 = tf.convert_to_tensor(quat2, dtype='float32')
 
-    original_shape = quat1.shape
+    original_shape = tf.shape(quat1)
 
     quat1 = tf.reshape(quat1, [-1, 4])
     quat2 = tf.reshape(quat2, [-1, 4])
@@ -364,8 +370,8 @@ def rotate_vector(rotations, vectors, representation='dcm'):
         rotated = rotated[..., :-1]  # removes the last column since it is filled with zeros
 
     else:
-        if len(vectors.shape) < 3:
-            vectors = vectors[:, tf.newaxis, :]
+        if len(tf.shape(vectors)) < 3:
+            vectors = vectors[..., tf.newaxis]
 
         rotated = tf.matmul(rotations, vectors, transpose_b=True)
         rotated = tf.transpose(rotated, [0, 2, 1])
@@ -379,7 +385,7 @@ def average_rotation_svd(dcms):
 
     Args:
         dcms: An array of shape (N, S, 3, 3) or (S, 3, 3), where N are the number
-              of rotation estimations per sample ans S is the number of samples.
+              of rotation estimations per sample and S is the number of samples.
               Each sample of the array is a rotation matrix.
 
     Returns:
@@ -417,7 +423,7 @@ def average_rotation_dec(dcms):
 
     r_mean = tf.reduce_mean(dcms, axis=0)
 
-    if len(r_mean.shape) < 3:
+    if len(tf.shape(r_mean)) < 3:
         r_mean = r_mean[tf.newaxis, ...]
 
     r_dets = tf.linalg.det(r_mean)
