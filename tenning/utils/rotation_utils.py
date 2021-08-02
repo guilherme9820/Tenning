@@ -310,13 +310,19 @@ def gen_boresight_vector(num_samples, observations, weight=2):
     obs_axis = np.tile(obs_axis, [num_samples, 1])
     obs_axis = np.reshape(obs_axis, [-1])
 
-    axis = np.array([sample_axis, obs_axis, np.random.randint(0, 3, (num_samples*observations))])
-    axis = axis.T
+    max_indices = np.argmax(vec, axis=-1).reshape([-1])
+    max_indices = np.array([sample_axis, obs_axis, max_indices])
+    max_indices = max_indices.T
 
-    weights = np.ones((num_samples, observations, 3))
-    weights[axis[:, 0], axis[:, 1], axis[:, 2]] = weight
-    weights /= weight
-    vec *= weights
+    bore_axis = np.random.uniform(0, 3, [num_samples * observations]).astype('int32')
+    bore_axis = np.array([sample_axis, obs_axis, bore_axis])
+    bore_axis = bore_axis.T
+
+    vec[max_indices[:, 0], max_indices[:, 1], max_indices[:, 2]] = vec[bore_axis[:, 0], bore_axis[:, 1], bore_axis[:, 2]]
+
+    vec[bore_axis[:, 0], bore_axis[:, 1], bore_axis[:, 2]] = weight
+
+    vec /= weight
 
     vec = tf.linalg.normalize(vec, axis=-1)[0]
 
