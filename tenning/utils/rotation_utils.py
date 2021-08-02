@@ -384,14 +384,28 @@ def quaternion_multiplication(quat1, quat2):
     z_comp = quat1[:, 3]*quat2[:, 2] + quat1[:, 0]*quat2[:, 1] - quat1[:, 1]*quat2[:, 0] + quat1[:, 2]*quat2[:, 3]
     real = quat1[:, 3]*quat2[:, 3] - quat1[:, 0]*quat2[:, 0] - quat1[:, 1]*quat2[:, 1] - quat1[:, 2]*quat2[:, 2]
 
-    i_comp = tf.reshape(i_comp, original_shape[:-1] + [1])
-    j_comp = tf.reshape(j_comp, original_shape[:-1] + [1])
-    z_comp = tf.reshape(z_comp, original_shape[:-1] + [1])
-    real = tf.reshape(real, original_shape[:-1] + [1])
+    new_shape = tf.concat([original_shape[:-1], [1]], axis=0)
+
+    i_comp = tf.reshape(i_comp, new_shape)
+    j_comp = tf.reshape(j_comp, new_shape)
+    z_comp = tf.reshape(z_comp, new_shape)
+    real = tf.reshape(real, new_shape)
 
     result = tf.concat([i_comp, j_comp, z_comp, real], axis=-1)
 
     return result
+
+
+def quaternion_inverse(quaternion):
+
+    if len(tf.shape(quaternion)) < 2:
+        quaternion = quaternion[tf.newaxis, :]
+
+    samples = tf.shape(quaternion)[0]
+    idx = tf.range(samples)[:, tf.newaxis]  # idx = [[0], [1], ..., [batch_size-1]]
+    # idx = [[0, 3], [1, 3], ..., [batch_size-1, 3]]
+    idx = tf.concat([idx, 3*tf.ones([samples, 1], dtype='int32')], axis=-1)
+    return tf.tensor_scatter_nd_update(-quaternion, idx, quaternion[:, 3])
 
 
 def rotate_vector(rotations, vectors, representation='dcm'):
