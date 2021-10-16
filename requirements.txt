@@ -1,5 +1,4 @@
 absl-py==0.9.0
-ahrs==0.3.0rc1
 aiohttp==3.7.3
 alabaster==0.7.12
 alembic==1.4.1
@@ -56,11 +55,8 @@ docker==5.0.0
 docutils==0.16
 dpath==2.0.1
 dulwich==0.20.23
-dvc==2.3.0
 entrypoints==0.3
 everett==1.0.2
-flake8==3.9.2
-flask==2.0.1
 flatten-dict==0.4.0
 flufl.lock==3.2
 focal-loss==0.0.7
@@ -185,7 +181,6 @@ pydot==1.4.1
 pydotplus==2.0.2
 pydrive2==1.8.3
 pyflakes==2.3.1
-pygit2==1.6.0
 pygments==2.6.1
 pygtrie==2.3.2
 pylint==2.6.0
@@ -239,11 +234,9 @@ sphinxcontrib-qthelp==1.0.3
 sphinxcontrib-serializinghtml==1.1.4
 sqlalchemy==1.4.17
 sqlparse==0.4.1
-src==0.1.0
 statsmodels==0.12.1
 subprocess32==3.5.4
 tabulate==0.8.9
-tenning==1.0.6
 tensorboard==2.0.2
 tensorflow-addons==0.6.0
 tensorflow-datasets==3.2.1
