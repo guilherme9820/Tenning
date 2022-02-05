@@ -7,6 +7,7 @@ from tensorflow.keras.layers import Lambda
 from tensorflow.keras.layers import Layer
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import Add
+from tensorflow.keras.layers import Reshape
 import tensorflow as tf
 
 
@@ -141,73 +142,87 @@ class MultiHeadAttention(Layer):
 
     def __init__(self,
                  out_channels,
-                 num_heads=8,
+                 heads=8,
                  d_k=64,
                  d_v=64,
+                 use_dropout=False,
                  drop=0.1,
+                 normalization='softmax',
                  initializer='he_normal',
                  trainable=True,
                  **kwargs):
         super().__init__(trainable=trainable, **kwargs)
 
         self.out_channels = out_channels
-        self.num_heads = num_heads
+        self.heads = heads
         self.temperature = d_k ** 0.5
         self.drop = drop
         self.d_k = d_k
         self.d_v = d_v
+        self.normalization = normalization
         self.initializer = initializer
+        self.use_dropout = use_dropout
 
-        self.keys = Dense(num_heads*d_k, name=self.name + '/keys', trainable=trainable, use_bias=False, kernel_initializer=initializer)
+        self.keys = Dense(heads*d_k, name=f"{self.name}/keys", trainable=trainable, use_bias=False, kernel_initializer=initializer)
 
-        self.queries = Dense(num_heads*d_k, name=self.name + '/queries', trainable=trainable, use_bias=False, kernel_initializer=initializer)
+        self.queries = Dense(heads*d_k, name=f"{self.name}/queries", trainable=trainable, use_bias=False, kernel_initializer=initializer)
 
-        self.values = Dense(num_heads*d_v, name=self.name + '/values', trainable=trainable, use_bias=False, kernel_initializer=initializer)
+        self.values = Dense(heads*d_v, name=f"{self.name}/values", trainable=trainable, use_bias=False, kernel_initializer=initializer)
 
-        self.out = Dense(out_channels, name=self.name + '/out', trainable=trainable, use_bias=False, kernel_initializer=initializer)
+        self.out = Dense(out_channels, name=f"{self.name}/out", trainable=trainable, use_bias=False, kernel_initializer=initializer)
 
-        self.softmax = Softmax(name=self.name + '/softmax')
+    def call(self, queries, keys, values, mask=None):
 
-        self.dropout1 = tf.keras.layers.Dropout(self.drop)
-        self.dropout2 = tf.keras.layers.Dropout(self.drop)
+        keys = self.keys(keys)
 
-        self.norm = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        queries = self.queries(queries)
 
-    def call(self, input_tensor):
+        values = self.values(values)
 
-        batch = input_tensor.shape[0]
+        queries = Reshape([self.heads, -1, self.d_k])(queries)
+        keys = Reshape([self.heads, -1, self.d_k])(keys)
+        values = Reshape([self.heads, -1, self.d_v])(values)
 
-        keys = self.keys(input_tensor)
+        # queries = tf.transpose(queries, [0, 2, 1, 3])
+        # keys = tf.transpose(keys, [0, 2, 1, 3])
+        # values = tf.transpose(values, [0, 2, 1, 3])
 
-        queries = self.queries(input_tensor)
+        # Vanilla attention mechanism
+        # scores = tf.matmul(queries, keys, transpose_b=True) / self.temperature
 
-        values = self.values(input_tensor)
+        # Efficient Attention mechanism (https://arxiv.org/pdf/1812.01243.pdf)
+        if self.normalization == 'softmax':
+            # Softmax applied along the columns of keys
+            keys = tf.nn.softmax(keys, axis=-2)
+        else:
+            keys /= tf.math.sqrt(tf.cast(tf.shape(keys)[-2], 'float32'))
 
-        queries = tf.reshape(queries, [batch, -1, self.num_heads, self.d_k])
-        keys = tf.reshape(keys, [batch, -1, self.num_heads, self.d_k])
-        values = tf.reshape(values, [batch, -1, self.num_heads, self.d_v])
+        scores = tf.matmul(keys, values, transpose_a=True) / self.temperature
 
-        queries = tf.transpose(queries, [0, 2, 1, 3])
-        keys = tf.transpose(keys, [0, 2, 1, 3])
-        values = tf.transpose(values, [0, 2, 1, 3])
+        if mask is not None:
+            scores = tf.where(mask == 0, tf.fill(tf.shape(scores), -1e-9), scores)
 
-        attn = tf.matmul(queries / self.temperature, tf.transpose(keys, [0, 1, 3, 2]))
+        if self.normalization == 'softmax':
+            # Softmax applied along the rows of keys
+            queries = tf.nn.softmax(queries, axis=-1)
+        else:
+            queries /= tf.math.sqrt(tf.cast(tf.shape(queries)[-2], 'float32'))
 
-        attention_maps = self.softmax(attn)
+        if self.use_dropout:
+            queries = tf.keras.layers.Dropout(self.drop)(queries)
 
-        attn = self.dropout1(attention_maps)
+            # Normalized rescale. This is necessary because we cannot guarantee that
+            # all points in the feature maps will sum up to 1. We rescale the rows
+            # of the attention maps.
+            queries /= tf.reduce_sum(queries, axis=-1, keepdims=True)
 
-        output = tf.matmul(attn, values)
+        output = tf.matmul(queries, scores)
 
         output = tf.transpose(output, [0, 2, 1, 3])
 
-        q = tf.reshape(output, [batch, -1, self.d_v*self.num_heads])
+        q = Reshape([-1, self.d_v*self.heads])(output)
 
-        q = self.out(q)
-
-        q = self.dropout2(q) + input_tensor
-
-        return self.norm(q)
+        return self.out(q)
 
     def get_config(self):
 
@@ -215,19 +230,13 @@ class MultiHeadAttention(Layer):
 
         config.update({'out_channels': self.out_channels,
                        'initializer': self.initializer,
-                       'num_heads': self.num_heads,
-                       'temperature': self.temperature,
+                       'heads': self.heads,
                        'drop': self.drop,
                        'd_k': self.d_k,
                        'd_v': self.d_v,
+                       'use_dropout': False,
+                       'normalization': self.normalization,
                        'trainable': self.trainable,
-                       'name': self.name,
-                       'keys': get_object_config(self.keys),
-                       'queries': get_object_config(self.queries),
-                       'values': get_object_config(self.values),
-                       'softmax': get_object_config(self.softmax),
-                       'dropout1': get_object_config(self.dropout1),
-                       'dropout2': get_object_config(self.dropout2),
-                       'norm': get_object_config(self.norm)})
+                       'name': self.name})
 
         return config
