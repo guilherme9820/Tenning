@@ -3,10 +3,25 @@ from tensorflow.keras.losses import Loss
 from tensorflow.python.keras.losses import LossFunctionWrapper
 from tensorflow.python.ops import math_ops
 from tensorflow.python.framework import smart_cond
+from tensorflow.python.framework import ops
 from tensorflow.python.keras import backend as K
 import tensorflow as tf
 import numpy as np
 from typing import Union
+import sys
+import os
+
+parent_dir = os.path.split(sys.modules[__name__].__file__)[0]
+_chamfer_module = tf.load_op_library(os.path.join(parent_dir, "tf_nndistance_so.so"))
+
+
+# @ops.RegisterGradient('NnDistance')
+# def _nn_distance_grad(op, grad_dist1, grad_idx1, grad_dist2, grad_idx2):
+#     xyz1 = op.inputs[0]
+#     xyz2 = op.inputs[1]
+#     idx1 = op.outputs[1]
+#     idx2 = op.outputs[3]
+#     return _chamfer_module.nn_distance_grad(xyz1, xyz2, grad_dist1, idx1, grad_dist2, idx2)
 
 
 class TverskyLoss(LossFunctionWrapper):
@@ -93,6 +108,14 @@ class QuatChordalSquaredLoss(LossFunctionWrapper):
 
     def __init__(self, reduction=tf.keras.losses.Reduction.AUTO, name='quat_chordal_squared_loss'):
         super().__init__(quat_chordal_squared_loss,
+                         name=name,
+                         reduction=reduction)
+
+
+class ChamferLoss(LossFunctionWrapper):
+
+    def __init__(self, reduction=tf.keras.losses.Reduction.AUTO, name='chamfer_loss'):
+        super().__init__(chamfer_distance,
                          name=name,
                          reduction=reduction)
 
@@ -339,3 +362,23 @@ def quaternion_distance(q_1, q_2):
     plus = tf.linalg.norm(q_1 + q_2, axis=-1)
 
     return tf.math.minimum(minus, plus)
+
+
+def chamfer_distance(source: tf.Tensor, target: tf.Tensor) -> tf.Tensor:
+    """
+        Computes the distance of nearest neighbors for a pair of point clouds.
+
+        Args:
+            source (tf.Tensor): A tensor containing the source point clouds with a 
+                                shape (batch_size, points,3).
+            target (tf.Tensor): A tensor containing the target point clouds with a 
+                                shape (batch_size, points,3).
+
+        Returns:
+            A tensor containing the the distances for every point cloud.
+
+    """
+    dist1, _, dist2, _ = _chamfer_module.nn_distance(source, target)
+    dist1_avg = tf.reduce_mean(dist1, axis=1)
+    dist2_avg = tf.reduce_mean(dist2, axis=1)
+    return dist1_avg + dist2_avg
