@@ -1,6 +1,7 @@
 import sys
 import os
 from pkg_resources import get_distribution, DistributionNotFound
+from .utils.generic_utils import LazyLoader
 from . import utils
 
 
@@ -37,9 +38,7 @@ def get_module_dir(module):
 
 
 _current_module = sys.modules[__name__]
-
 _current_module.__path__ = ([get_module_dir(utils)] + _current_module.__path__)
-setattr(_current_module, "utils", utils)
 
 # Creates an alias for some modules
 generic_utils = utils.generic_utils
@@ -50,3 +49,12 @@ setattr(_current_module, "generic_utils", generic_utils)
 setattr(_current_module, "data_utils", data_utils)
 setattr(_current_module, "rotation_utils", rotation_utils)
 setattr(_current_module, "linalg_utils", linalg_utils)
+
+del utils
+
+layers = LazyLoader('layers', globals(), 'tenning.layers')
+activations = LazyLoader('activations', globals(), 'tenning.activations')
+metrics = LazyLoader('metrics', globals(), 'tenning.metrics')
+losses = LazyLoader('losses', globals(), 'tenning.losses')
+
+del LazyLoader
