@@ -114,6 +114,58 @@ class Biternion(Layer):
         return input_shape
 
 
+class HintonSquash(Layer):
+    """ Squash activation function (https://arxiv.org/abs/1710.09829).
+        Derived from Dynamic Routing Between Capsules paper, it ensures that short
+        vectors get shrunk to almost zero length and long vectors get shrunk to a
+        length slightly below 1.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        self.eps = 1e-7
+
+    def call(self, inputs, axis=-1):
+        squared_norm = tf.reduce_sum(tf.square(inputs), axis=axis, keepdims=True)
+        safe_norm = tf.sqrt(squared_norm + self.eps)
+        squash_factor = squared_norm / (1. + squared_norm)
+        unit_vector = squash_factor / safe_norm
+        return inputs * unit_vector
+
+    def get_config(self):
+        return super().get_config()
+
+    @tf_utils.shape_type_conversion
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
+
+class EfficientSquash(Layer):
+    """ Squash activation function (https://arxiv.org/abs/2101.12491).
+        Derived from Efficient-CapsNet: Capsule Network With Self-Attention Routing paper, it ensures that short
+        vectors get shrunk to almost zero length and long vectors get shrunk to a
+        length slightly below 1.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        self.eps = 1e-7
+
+    def call(self, inputs, axis=-1):
+        norm = tf.norm(inputs, axis=-1, keepdims=True)
+        unit_vector = inputs / (norm + self.eps)
+
+        return (1 - 1/(tf.math.exp(norm)+self.eps)) * unit_vector
+
+    def get_config(self):
+        return super().get_config()
+
+    @tf_utils.shape_type_conversion
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
 # class SOTransform(Layer):
 #     """Swish activation function (https://arxiv.org/abs/1710.05941).
 #     It allows a small gradient when the unit is not active:
